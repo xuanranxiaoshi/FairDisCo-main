@@ -7,6 +7,7 @@ import warnings
 import os
 warnings.filterwarnings('ignore')
 
+# 参数设置
 setSeed(2022)
 parser = argparse.ArgumentParser()
 parser.add_argument('--cuda', type=int, default=-1)
@@ -16,10 +17,12 @@ device = torch.device('cpu') if args.cuda < 0 else torch.device('cuda', args.cud
 
 dataset = args.data
 
+# 加载处理的数据
 train_data, test_data, D = load_dataset(dataset)
 S_train, S_test = train_data.S.numpy(), test_data.S.numpy()
 Y_train, Y_test = train_data.Y.numpy(), test_data.Y.numpy()
 
+# 超参数
 batch_size = 2048
 epochs = 1000
 verbose = 100
