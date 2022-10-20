@@ -22,11 +22,13 @@ class FairDisCo(nn.Module):
         self.s_dim = s_dim
         self.d = d
 
+        # encoder
         self.encoder = nn.Sequential(
             nn.Linear(x_dim + s_dim, h_dim),
             nn.ReLU(inplace=True),
             nn.Linear(h_dim, 2 * z_dim),
         )
+        # decoder
         self.decoder = nn.Sequential(
             nn.Linear(z_dim + s_dim, h_dim),
             nn.ReLU(inplace=True),
@@ -35,42 +37,52 @@ class FairDisCo(nn.Module):
 
     def encode(self, x, s):
         # P(Z|X,S)
+        # one_hot(tensor, num_classes=-1) -> LongTensor
+        # 将s转换为独热码形式
         s = F.one_hot(s, self.s_dim)
+        # 将独热形式的s拼接到x后
         x = torch.cat([x, s], dim=1)
         h = self.encoder(x)
+        # 产生平均值
         self.mean = h[:,:self.z_dim]
+        # 产生方差
         self.logvar = h[:,self.z_dim:]
         self.var = torch.exp(self.logvar)
         # reparametrize
+        # 返回具有input相同大小的张量,填充有随机数从正态分布均值为0，方差为1。
         gaussian_noise = torch.randn_like(self.mean, device=self.mean.device)
+        # 重参数化
         z = self.mean + gaussian_noise * torch.sqrt(self.var)
         return z
 
     def decode(self, z, s):
         # P(X|Z,S)
+        # 重建出x
         s = F.one_hot(s, self.s_dim)
         z = torch.cat([z, s], dim=1)
         return self.decoder(z)
 
     def dis(self, index_i, index_j):
-        var_i, var_j = self.var[index_i], self.var[index_j]
+        var_i, var_j = self.var[index_i], self.var[index_j] # shape:[2048, 8]
         mean_i, mean_j = self.mean[index_i], self.mean[index_j]
-        item1 = var_i.unsqueeze(1) + var_j
-        item2 = (mean_i.unsqueeze(1) - mean_j)**2 / item1
-        item2 = torch.exp(-item2.sum(-1) / 2)
-        item3 = torch.sqrt((2*math.pi*item1).prod(-1)) + 1e-10
+        item1 = var_i.unsqueeze(1) + var_j # [2048,1,8] + [2048,8] = [2048, 2048, 8]
+        item2 = (mean_i.unsqueeze(1) - mean_j)**2 / item1 # [2048, 2048, 8]
+        item2 = torch.exp(-item2.sum(-1) / 2) # [2048, 2048]
+        item3 = torch.sqrt((2*math.pi*item1).prod(-1)) + 1e-10 # [2048,2048]
         ans = (item2 / item3).mean()
         return ans
 
     def calculate_dis(self, s, batch_size):
         # V^2(p(Z,S),p(S)p(Z))
         ans = 0
+        # s是一纬数组，num等于这里的样本的数
         num = s.shape[0]
-        index_j = s>-1
+
+        index_j = s>-1 # 全部数据？
         item1 = self.dis(index_j, index_j)
-        for i in range(self.s_dim):
-            index_i = s==i
-            num_i = index_i.sum()
+        for i in range(self.s_dim): # 变量s属性的取值
+            index_i = s==i  # 获取相应取值的索引
+            num_i = index_i.sum()   # 计算数量
             if 0 < num_i < num:
                 cur = item1 + self.dis(index_i, index_i) - 2 * self.dis(index_i, index_j)
                 ans += (num_i / num)**2 * cur
@@ -79,21 +91,26 @@ class FairDisCo(nn.Module):
 
     def calculate_kl(self):
         # kl
+        # kl divergence
         return -0.5 * (1 + self.logvar - self.mean**2 - self.var).sum(dim=-1).mean()
 
     def calculate_re(self, x_hat, c):
+        # reconstruction error
         # l(X_hat, X)
         ans = 0
         left, right = 0, 0
         for i, length in enumerate(self.d):
             right = left + length
+            # 计算交叉熵
             ans += F.cross_entropy(x_hat[:, left:right], c[:, i])
             left = right
         return ans
 
     def fit(self, train_data, epochs, lr, batch_size, verbose, beta, device):
         assert beta >= 0
+        # 将self中的变量加载到指定设备中
         self.to(device=device)
+        # 进入训练模式
         self.train()
 
         train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
@@ -105,6 +122,7 @@ class FairDisCo(nn.Module):
             # train_step
             for x, c, s, y in train_loader:
                 x = x.to(device)
+                # c是将样本每个属性转换为独热形式的原始数据
                 c = c.to(device)
                 s = s.to(device)
                 y = y.to(device)
@@ -118,11 +136,18 @@ class FairDisCo(nn.Module):
 
                 loss = re_loss + kl_loss + beta * Dis_loss
 
+                # 反向传播，计算当前梯度；
                 loss.backward()
+                # 根据梯度更新网络参数
                 optimizer.step()
+                # 清空过往梯度；
                 optimizer.zero_grad()
 
                 # eval
+                # 使用loss.detach()来获取不需要梯度回传的部分。detach,通过重新声明一个变量，指向原变量的存放位置，
+                # 但是requires_grad变为False
+                # todo
+                # 这里train_loss 的计算？
                 train_loss += loss.detach() * x.shape[0]
                 num += x.shape[0]
             

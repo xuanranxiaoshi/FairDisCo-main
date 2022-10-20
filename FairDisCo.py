@@ -17,7 +17,7 @@ device = torch.device('cpu') if args.cuda < 0 else torch.device('cuda', args.cud
 
 dataset = args.data
 
-# 加载处理的数据
+# 加载指定的数据集
 train_data, test_data, D = load_dataset(dataset)
 S_train, S_test = train_data.S.numpy(), test_data.S.numpy()
 Y_train, Y_test = train_data.Y.numpy(), test_data.Y.numpy()
@@ -28,14 +28,18 @@ epochs = 1000
 verbose = 100
 
 lr = 1e-3
+# 样本的特征纬度
 x_dim = train_data.X.shape[1]
+# train_data.S.max() 返回的是一个tensor， item以数字的形式返回其值
 s_dim = train_data.S.max().item()+1
 h_dim = 64
 z_dim = 8
 
 logs = []
 for lg_beta in range(11):
+    # 平衡参数，权衡对fairness 的关注度
     beta = 10 ** lg_beta
+    # 获取模型
     model = FairDisCo(x_dim, h_dim, z_dim, s_dim, D)
 
     if os.path.exists('./model/FairDisCo_{}_{}.pkl'.format(dataset, lg_beta)):

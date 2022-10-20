@@ -89,6 +89,7 @@ def getDataset(df, S, Y, num_train):
     S = torch.LongTensor(S)
     Y = torch.FloatTensor(Y)
     # 将训练样本和测试样本的相关数据切分开
+    # S是一维数组
     S_train, S_test = S[:num_train], S[num_train:]
     Y_train, Y_test = Y[:num_train], Y[num_train:]
 
